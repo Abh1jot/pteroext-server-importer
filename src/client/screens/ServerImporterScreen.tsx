@@ -96,16 +96,39 @@ export default function ServerImporterScreen() {
 
     const terminalRef = useRef<HTMLDivElement>(null);
 
+    // Multi-candidate API fetch to support both /extensions/server-importer and /server-importer routing
+    const apiFetch = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
+        const candidateUrls = [
+            `/api/client/servers/${serverId}/extensions/server-importer/${endpoint}`,
+            `/api/client/servers/${serverId}/server-importer/${endpoint}`,
+        ];
+        let lastRes: Response | null = null;
+        for (const url of candidateUrls) {
+            try {
+                const res = await fetch(url, {
+                    ...options,
+                    headers: {
+                        'Accept': 'application/json',
+                        'X-CSRF-TOKEN': getCsrfToken(),
+                        ...(options.headers || {}),
+                    },
+                });
+                if (res.status !== 404) {
+                    return res;
+                }
+                lastRes = res;
+            } catch (e) {
+                // Try next candidate
+            }
+        }
+        return lastRes || fetch(candidateUrls[0], options);
+    };
+
     // Polling active status
     const pollStatus = async () => {
         if (!serverId) return;
         try {
-            const res = await fetch(`/api/client/servers/${serverId}/extensions/server-importer/status`, {
-                headers: {
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                },
-            });
+            const res = await apiFetch('status');
             if (res.ok) {
                 const data: ImportStatus = await res.json();
                 setImportStatus(data);
@@ -135,9 +158,29 @@ export default function ServerImporterScreen() {
         }
     }, [importStatus.logs]);
 
+    const handleHostChange = (raw: string) => {
+        let clean = raw.trim();
+        // Automatically extract from sftp://host:port or host:port
+        if (clean.includes('://')) {
+            clean = clean.split('://')[1];
+        }
+        clean = clean.split('/')[0];
+        if (clean.includes(':')) {
+            const parts = clean.split(':');
+            setHost(parts[0]);
+            const parsedPort = Number(parts[1]);
+            if (parsedPort && !isNaN(parsedPort)) {
+                setPort(parsedPort);
+            }
+        } else {
+            setHost(clean);
+        }
+    };
+
     // Test remote connection
     const handleTestConnection = async () => {
-        if (!host || !username || !password) {
+        const sanitizedHost = host.replace(/^[a-zA-Z0-9]+:\/\//, '').split('/')[0].split(':')[0].trim();
+        if (!sanitizedHost || !username || !password) {
             toast.error('Please enter Host, Username, and Password first.');
             return;
         }
@@ -145,14 +188,10 @@ export default function ServerImporterScreen() {
         setConnectionResult(null);
 
         try {
-            const res = await fetch(`/api/client/servers/${serverId}/extensions/server-importer/test-connection`, {
+            const res = await apiFetch('test-connection', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                },
-                body: JSON.stringify({ host, port, username, password }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host: sanitizedHost, port, username, password }),
             });
             const data = await res.json();
             if (res.ok && data.success) {
@@ -173,16 +212,13 @@ export default function ServerImporterScreen() {
     // Browse remote directory
     const fetchRemoteDirectory = async (path: string) => {
         if (!host || !username || !password) return;
+        const sanitizedHost = host.replace(/^[a-zA-Z0-9]+:\/\//, '').split('/')[0].split(':')[0].trim();
         setBrowserLoading(true);
         try {
-            const res = await fetch(`/api/client/servers/${serverId}/extensions/server-importer/list-remote`, {
+            const res = await apiFetch('list-remote', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                },
-                body: JSON.stringify({ host, port, username, password, path }),
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ host: sanitizedHost, port, username, password, path }),
             });
             const data = await res.json();
             if (res.ok && data.entries) {
@@ -212,17 +248,14 @@ export default function ServerImporterScreen() {
             return;
         }
 
+        const sanitizedHost = host.replace(/^[a-zA-Z0-9]+:\/\//, '').split('/')[0].split(':')[0].trim();
         setSubmittingImport(true);
         try {
-            const res = await fetch(`/api/client/servers/${serverId}/extensions/server-importer/start`, {
+            const res = await apiFetch('start', {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                },
+                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    host,
+                    host: sanitizedHost,
                     port,
                     username,
                     password,
@@ -257,14 +290,7 @@ export default function ServerImporterScreen() {
         if (!confirm('Are you sure you want to stop this migration transfer?')) return;
         setCancelling(true);
         try {
-            const res = await fetch(`/api/client/servers/${serverId}/extensions/server-importer/cancel`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json',
-                    'X-CSRF-TOKEN': getCsrfToken(),
-                },
-            });
+            const res = await apiFetch('cancel', { method: 'POST' });
             const data = await res.json();
             if (res.ok) {
                 toast.info('Cancellation requested.');
@@ -376,7 +402,7 @@ export default function ServerImporterScreen() {
                                 className="imp-input"
                                 placeholder="sftp.example.com or 192.168.1.100"
                                 value={host}
-                                onChange={(e) => setHost(e.target.value)}
+                                onChange={(e) => handleHostChange(e.target.value)}
                             />
                         </div>
 

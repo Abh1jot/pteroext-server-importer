@@ -23,17 +23,55 @@ class SftpImporterService
     }
 
     /**
+     * Sanitize and normalize remote host and port.
+     */
+    public function normalizeHostAndPort(string $rawHost, int $rawPort = 2022): array
+    {
+        $host = trim($rawHost);
+        $port = $rawPort > 0 ? $rawPort : 2022;
+
+        // Strip URI schemes like sftp://, ssh://, tcp://, ftp://
+        $host = preg_replace('#^[a-zA-Z0-9\+\.\-]+://#', '', $host);
+
+        // Strip any trailing paths or slashes, e.g. host.com/path
+        $host = explode('/', $host)[0];
+
+        // Check if port is in host string, e.g. host.com:2022 or [::1]:2022
+        if (preg_match('/^\[(.*?)\](?::(\d+))?$/', $host, $matches)) {
+            // IPv6
+            $host = $matches[1];
+            if (!empty($matches[2])) {
+                $port = (int)$matches[2];
+            }
+        } elseif (substr_count($host, ':') === 1) {
+            // IPv4 or hostname with port
+            [$h, $p] = explode(':', $host, 2);
+            $host = $h;
+            if (is_numeric($p) && (int)$p > 0) {
+                $port = (int)$p;
+            }
+        }
+
+        return [$host, $port];
+    }
+
+    /**
      * Test connection to a remote SFTP server.
      */
     public function testConnection(string $host, int $port, string $username, string $password): array
     {
-        $host = trim($host);
+        [$host, $port] = $this->normalizeHostAndPort($host, $port);
+
         if (empty($host) || empty($username) || empty($password)) {
             return ['success' => false, 'message' => 'Host, username, and password are required.'];
         }
 
-        // 1. Socket reachability check
-        $socket = @fsockopen($host, $port, $errno, $errstr, 6.0);
+        // 1. Socket reachability check using TCP transport
+        $socket = @fsockopen("tcp://{$host}", $port, $errno, $errstr, 6.0);
+        if (!$socket) {
+            $socket = @fsockopen($host, $port, $errno, $errstr, 6.0);
+        }
+
         if (!$socket) {
             return [
                 'success' => false,
@@ -92,6 +130,7 @@ class SftpImporterService
      */
     public function listRemote(string $host, int $port, string $username, string $password, string $remotePath = '/'): array
     {
+        [$host, $port] = $this->normalizeHostAndPort($host, $port);
         $remotePath = '/' . ltrim($remotePath, '/');
 
         if (class_exists(\phpseclib3\Net\SFTP::class)) {
@@ -184,8 +223,9 @@ class SftpImporterService
             }
         }
 
-        $host = trim((string)($params['host'] ?? ''));
-        $port = (int)($params['port'] ?? 2022);
+        [$host, $port] = $this->normalizeHostAndPort((string)($params['host'] ?? ''), (int)($params['port'] ?? 2022));
+        $params['host'] = $host;
+        $params['port'] = $port;
         $username = trim((string)($params['username'] ?? ''));
         $password = (string)($params['password'] ?? '');
         $sourcePath = '/' . ltrim((string)($params['source_path'] ?? '/'), '/');
@@ -222,7 +262,23 @@ class SftpImporterService
 
         File::put($statusFile, json_encode($status, JSON_PRETTY_PRINT));
 
-        // Execute import in background or inline chunk
+        // If running in PHP-FPM, finish the HTTP response immediately to prevent browser timeouts
+        if (function_exists('fastcgi_finish_request')) {
+            response()->json([
+                'success' => true,
+                'message' => 'Import job started successfully.',
+                'status' => $status,
+            ])->send();
+            fastcgi_finish_request();
+            @set_time_limit(0);
+            @ignore_user_abort(true);
+            $this->executeImport($server, $params, $statusFile);
+            exit(0);
+        }
+
+        // For non-FPM environments, run with extended time limit
+        @set_time_limit(0);
+        @ignore_user_abort(true);
         $this->executeImport($server, $params, $statusFile);
 
         return [
@@ -237,8 +293,12 @@ class SftpImporterService
      */
     protected function executeImport(Server $server, array $params, string $statusFile): void
     {
-        $host = trim((string)($params['host'] ?? ''));
-        $port = (int)($params['port'] ?? 2022);
+        // Ensure bundled phpseclib3 autoloader is loaded
+        if (file_exists(__DIR__ . '/../../vendor/autoload.php')) {
+            require_once __DIR__ . '/../../vendor/autoload.php';
+        }
+
+        [$host, $port] = $this->normalizeHostAndPort((string)($params['host'] ?? ''), (int)($params['port'] ?? 2022));
         $username = trim((string)($params['username'] ?? ''));
         $password = (string)($params['password'] ?? '');
         $sourcePath = '/' . ltrim((string)($params['source_path'] ?? '/'), '/');
