@@ -18,6 +18,7 @@ interface ImportStatus {
     bytes_transferred: number;
     current_file: string;
     speed_bytes_sec: number;
+    eta_seconds?: number | null;
     source_host?: string;
     source_path?: string;
     target_path?: string;
@@ -44,6 +45,24 @@ function formatSpeed(bytesPerSec: number): string {
     if (!bytesPerSec || bytesPerSec <= 0) return '0 KB/s';
     if (bytesPerSec >= 1048576) return (bytesPerSec / 1048576).toFixed(2) + ' MB/s';
     return (bytesPerSec / 1024).toFixed(1) + ' KB/s';
+}
+
+function formatEta(seconds?: number | null, bytesTransferred: number = 0, bytesTotal: number = 0, speed: number = 0): string {
+    let s = seconds;
+    if ((s === undefined || s === null || s <= 0) && speed > 0 && bytesTotal > bytesTransferred) {
+        s = Math.round((bytesTotal - bytesTransferred) / speed);
+    }
+    if (s === undefined || s === null || s < 0) return '--:--';
+    if (s < 5) return 'A few seconds left';
+    if (s < 60) return `${s}s left`;
+    const mins = Math.floor(s / 60);
+    const secs = s % 60;
+    if (mins < 60) {
+        return `${mins}m ${secs < 10 ? '0' : ''}${secs}s left`;
+    }
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return `${hours}h ${remMins}m left`;
 }
 
 export default function ServerImporterScreen() {
@@ -88,6 +107,7 @@ export default function ServerImporterScreen() {
         bytes_transferred: 0,
         current_file: '',
         speed_bytes_sec: 0,
+        eta_seconds: null,
         logs: [],
         error: null,
     });
@@ -96,7 +116,21 @@ export default function ServerImporterScreen() {
 
     const terminalRef = useRef<HTMLDivElement>(null);
 
-    // Multi-candidate API fetch to support both /extensions/server-importer and /server-importer routing
+    const isRunning = importStatus.status === 'scanning' || importStatus.status === 'transferring';
+
+    // Prevent accidental tab closure during transfer
+    useEffect(() => {
+        const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+            if (isRunning) {
+                e.preventDefault();
+                e.returnValue = '';
+            }
+        };
+        window.addEventListener('beforeunload', handleBeforeUnload);
+        return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+    }, [isRunning]);
+
+    // Multi-candidate API fetch
     const apiFetch = async (endpoint: string, options: RequestInit = {}): Promise<Response> => {
         const candidateUrls = [
             `/api/client/servers/${serverId}/extensions/server-importer/${endpoint}`,
@@ -160,7 +194,6 @@ export default function ServerImporterScreen() {
 
     const handleHostChange = (raw: string) => {
         let clean = raw.trim();
-        // Automatically extract from sftp://host:port or host:port
         if (clean.includes('://')) {
             clean = clean.split('://')[1];
         }
@@ -303,30 +336,28 @@ export default function ServerImporterScreen() {
         }
     };
 
-    const isRunning = importStatus.status === 'scanning' || importStatus.status === 'transferring';
-
     return (
         <div className="imp-container">
             {/* Header */}
             <div className="imp-header">
                 <div className="imp-title-wrap">
                     <h1 className="imp-title">
-                        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
-                            <line x1="12" y1="11" x2="12" y2="17"></line>
-                            <polyline points="9 14 12 17 15 14"></polyline>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3b82f6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                            <polyline points="7 10 12 15 17 10"></polyline>
+                            <line x1="12" y1="15" x2="12" y2="3"></line>
                         </svg>
                         Server File Importer
                     </h1>
                     <p className="imp-subtitle">
-                        Seamlessly import worlds, plugins, mods, and complete server files from any external Pterodactyl panel via SFTP.
+                        Direct SFTP file migration for worlds, mods, plugins, and complete server files.
                     </p>
                 </div>
 
                 {isRunning && (
                     <span className="imp-btn imp-btn-primary !text-xs !py-1 !px-3">
-                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block mr-1"></span>
-                        Transfer Active ({importStatus.progress_percent}%)
+                        <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block mr-1.5"></span>
+                        {importStatus.status === 'scanning' ? 'Indexing Files...' : `Transfer Active (${importStatus.progress_percent}%)`}
                     </span>
                 )}
             </div>
@@ -337,6 +368,7 @@ export default function ServerImporterScreen() {
                     type="button"
                     className={`imp-step-item ${step === 1 ? 'active' : ''} ${step > 1 ? 'completed' : ''}`}
                     onClick={() => !isRunning && setStep(1)}
+                    disabled={isRunning}
                 >
                     <span className="imp-step-badge">1</span>
                     <span>SFTP Details</span>
@@ -346,6 +378,7 @@ export default function ServerImporterScreen() {
                     type="button"
                     className={`imp-step-item ${step === 2 ? 'active' : ''} ${step > 2 ? 'completed' : ''}`}
                     onClick={() => !isRunning && setStep(2)}
+                    disabled={isRunning}
                 >
                     <span className="imp-step-badge">2</span>
                     <span>Paths & Files</span>
@@ -355,6 +388,7 @@ export default function ServerImporterScreen() {
                     type="button"
                     className={`imp-step-item ${step === 3 ? 'active' : ''} ${step > 3 ? 'completed' : ''}`}
                     onClick={() => !isRunning && setStep(3)}
+                    disabled={isRunning}
                 >
                     <span className="imp-step-badge">3</span>
                     <span>Options</span>
@@ -366,7 +400,7 @@ export default function ServerImporterScreen() {
                     onClick={() => setStep(4)}
                 >
                     <span className="imp-step-badge">4</span>
-                    <span>Live Progress</span>
+                    <span>Progress</span>
                 </button>
             </div>
 
@@ -374,29 +408,29 @@ export default function ServerImporterScreen() {
             {step === 1 && (
                 <div className="imp-card">
                     <h2 className="imp-card-title">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <rect x="2" y="2" width="20" height="8" rx="2" ry="2"></rect>
                             <rect x="2" y="14" width="20" height="8" rx="2" ry="2"></rect>
                             <line x1="6" y1="6" x2="6.01" y2="6"></line>
                             <line x1="6" y1="18" x2="6.01" y2="18"></line>
                         </svg>
-                        Remote Pterodactyl SFTP Credentials
+                        Remote SFTP Connection
                     </h2>
 
                     <div className="imp-alert imp-alert-info">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <circle cx="12" cy="12" r="10"></circle>
                             <line x1="12" y1="16" x2="12" y2="12"></line>
                             <line x1="12" y1="8" x2="12.01" y2="8"></line>
                         </svg>
                         <span>
-                            To find these credentials, log into the source Pterodactyl panel, open your server, and click <strong>Settings &rarr; SFTP Details</strong>.
+                            Enter the SFTP credentials from your source server (under <strong>Settings &rarr; SFTP Details</strong> in the source panel).
                         </span>
                     </div>
 
                     <div className="imp-grid-2">
                         <div className="imp-field">
-                            <label className="imp-label">SFTP Host / IP Address</label>
+                            <label className="imp-label">SFTP Host / IP</label>
                             <input
                                 type="text"
                                 className="imp-input"
@@ -416,13 +450,15 @@ export default function ServerImporterScreen() {
                                 onChange={(e) => setPort(Number(e.target.value))}
                             />
                         </div>
+                    </div>
 
+                    <div className="imp-grid-2" style={{ marginTop: 12 }}>
                         <div className="imp-field">
                             <label className="imp-label">SFTP Username</label>
                             <input
                                 type="text"
                                 className="imp-input"
-                                placeholder="e.g. username.8b2c4e1"
+                                placeholder="username.serveruuid"
                                 value={username}
                                 onChange={(e) => setUsername(e.target.value)}
                             />
@@ -434,24 +470,25 @@ export default function ServerImporterScreen() {
                                 <input
                                     type={showPassword ? 'text' : 'password'}
                                     className="imp-input"
-                                    placeholder="Source account / SFTP password"
+                                    placeholder="Source account password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
-                                    style={{ paddingRight: 40 }}
+                                    style={{ paddingRight: 60 }}
                                 />
                                 <button
                                     type="button"
-                                    onClick={() => setShowPassword(!showPassword)}
                                     style={{
                                         position: 'absolute',
-                                        right: 10,
+                                        right: 8,
                                         top: '50%',
                                         transform: 'translateY(-50%)',
                                         background: 'transparent',
                                         border: 'none',
                                         color: '#94a3b8',
+                                        fontSize: '0.75rem',
                                         cursor: 'pointer',
                                     }}
+                                    onClick={() => setShowPassword(!showPassword)}
                                 >
                                     {showPassword ? 'Hide' : 'Show'}
                                 </button>
@@ -460,12 +497,15 @@ export default function ServerImporterScreen() {
                     </div>
 
                     {connectionResult && (
-                        <div className={`imp-alert ${connectionResult.success ? 'imp-alert-success' : 'imp-alert-error'}`}>
+                        <div
+                            className={`imp-alert ${connectionResult.success ? 'imp-alert-success' : 'imp-alert-warning'}`}
+                            style={{ marginTop: 16 }}
+                        >
                             <span>{connectionResult.message}</span>
                         </div>
                     )}
 
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 20 }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 24 }}>
                         <button
                             type="button"
                             className="imp-btn imp-btn-secondary"
@@ -491,10 +531,10 @@ export default function ServerImporterScreen() {
             {step === 2 && (
                 <div className="imp-card">
                     <h2 className="imp-card-title">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
                         </svg>
-                        Migration Directories & Selective Import
+                        Migration Directory Configuration
                     </h2>
 
                     <div className="imp-grid-2">
@@ -518,12 +558,12 @@ export default function ServerImporterScreen() {
                                 </button>
                             </div>
                             <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                Use <code>/</code> for entire server, or specific folder like <code>/plugins</code> or <code>/world</code>.
+                                Use <code>/</code> for entire server root, or a folder like <code>/plugins</code> or <code>/world</code>.
                             </span>
                         </div>
 
                         <div className="imp-field">
-                            <label className="imp-label">Target Destination Path</label>
+                            <label className="imp-label">Local Destination Path</label>
                             <input
                                 type="text"
                                 className="imp-input"
@@ -532,7 +572,7 @@ export default function ServerImporterScreen() {
                                 onChange={(e) => setTargetPath(e.target.value)}
                             />
                             <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                Local server path where downloaded files will be placed. Usually <code>/</code>.
+                                Path on this server where files will be placed. Usually <code>/</code>.
                             </span>
                         </div>
                     </div>
@@ -584,11 +624,16 @@ export default function ServerImporterScreen() {
                                                 }
                                             }}
                                         >
-                                            <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem', color: item.is_dir ? '#60a5fa' : '#cbd5e1' }}>
-                                                {item.is_dir ? '📁' : '📄'} {item.name}
+                                            <span style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: '0.8125rem', color: item.is_dir ? '#60a5fa' : '#cbd5e1' }}>
+                                                {item.is_dir ? (
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path></svg>
+                                                ) : (
+                                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path><polyline points="13 2 13 9 20 9"></polyline></svg>
+                                                )}
+                                                {item.name}
                                             </span>
                                             <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                                {item.is_dir ? 'Folder' : formatBytes(item.size)}
+                                                {item.is_dir ? 'Directory' : formatBytes(item.size)}
                                             </span>
                                         </div>
                                     ))
@@ -612,18 +657,15 @@ export default function ServerImporterScreen() {
             {step === 3 && (
                 <div className="imp-card">
                     <h2 className="imp-card-title">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                             <line x1="4" y1="21" x2="4" y2="14"></line>
                             <line x1="4" y1="10" x2="4" y2="3"></line>
                             <line x1="12" y1="21" x2="12" y2="12"></line>
                             <line x1="12" y1="8" x2="12" y2="3"></line>
                             <line x1="20" y1="21" x2="20" y2="16"></line>
                             <line x1="20" y1="12" x2="20" y2="3"></line>
-                            <line x1="1" y1="14" x2="7" y2="14"></line>
-                            <line x1="9" y1="8" x2="15" y2="8"></line>
-                            <line x1="17" y1="16" x2="23" y2="16"></line>
                         </svg>
-                        Migration & Overwrite Settings
+                        Transfer Settings
                     </h2>
 
                     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
@@ -638,7 +680,7 @@ export default function ServerImporterScreen() {
                             <div>
                                 <div className="imp-checkbox-title">Overwrite Existing Files</div>
                                 <div className="imp-checkbox-desc">
-                                    Replace any files on this server if they already exist with the same name.
+                                    Replace any existing files on this server if they have identical paths.
                                 </div>
                             </div>
                         </label>
@@ -652,9 +694,9 @@ export default function ServerImporterScreen() {
                                 style={{ marginTop: 4 }}
                             />
                             <div>
-                                <div className="imp-checkbox-title">Exclude Temporary & Log Files (Recommended)</div>
+                                <div className="imp-checkbox-title">Exclude System Logs & Caches (Recommended)</div>
                                 <div className="imp-checkbox-desc">
-                                    Skips <code>*.log</code>, <code>crash-reports/</code>, <code>backups/</code>, <code>cache/</code>, and <code>session.lock</code> to optimize transfer speed and prevent file lock conflicts.
+                                    Skips <code>*.log</code>, <code>crash-reports/</code>, <code>backups/</code>, <code>cache/</code>, <code>libraries/</code>, and lock files to maximize transfer speed.
                                 </div>
                             </div>
                         </label>
@@ -675,7 +717,7 @@ export default function ServerImporterScreen() {
                                     Wipe Destination Directory Before Import
                                 </div>
                                 <div className="imp-checkbox-desc">
-                                    Deletes all existing files in target path (<code>{targetPath}</code>) prior to starting. Useful for clean full-server moves.
+                                    Deletes all existing files in <code>{targetPath}</code> prior to copying. Ideal for clean server migrations.
                                 </div>
                             </div>
                         </label>
@@ -689,7 +731,7 @@ export default function ServerImporterScreen() {
                                     id="wipeConfirmCheckbox"
                                 />
                                 <label htmlFor="wipeConfirmCheckbox" style={{ cursor: 'pointer' }}>
-                                    I understand that existing files in <strong>{targetPath}</strong> will be permanently wiped.
+                                    I confirm that existing files in <strong>{targetPath}</strong> will be permanently wiped.
                                 </label>
                             </div>
                         )}
@@ -705,7 +747,7 @@ export default function ServerImporterScreen() {
                                 onChange={(e) => setCustomExclusions(e.target.value)}
                             />
                             <span style={{ fontSize: '0.75rem', color: '#64748b' }}>
-                                Comma-separated list of file or directory patterns to exclude from migration.
+                                Comma-separated list of wildcard file or folder patterns to exclude.
                             </span>
                         </div>
                     </div>
@@ -720,7 +762,7 @@ export default function ServerImporterScreen() {
                             onClick={handleStartImport}
                             disabled={submittingImport || (wipeTarget && !wipeConfirmed)}
                         >
-                            {submittingImport ? 'Starting Migration...' : 'Start Server Migration 🚀'}
+                            {submittingImport ? 'Starting Migration...' : 'Start Migration'}
                         </button>
                     </div>
                 </div>
@@ -731,11 +773,11 @@ export default function ServerImporterScreen() {
                 <div className="imp-card">
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
                         <h2 className="imp-card-title" style={{ margin: 0 }}>
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#60a5fa" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                                 <circle cx="12" cy="12" r="10"></circle>
                                 <polyline points="12 6 12 12 16 14"></polyline>
                             </svg>
-                            Migration Pipeline Status: &nbsp;
+                            Transfer Status: &nbsp;
                             <span style={{
                                 textTransform: 'uppercase',
                                 color: importStatus.status === 'completed' ? '#34d399' : (importStatus.status === 'failed' ? '#f87171' : '#60a5fa')
@@ -770,7 +812,7 @@ export default function ServerImporterScreen() {
                     {(importStatus.status === 'failed' || importStatus.status === 'cancelled') && (
                         <div className="imp-alert imp-alert-warning" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
-                                <strong>{importStatus.status === 'failed' ? 'Import Failed:' : 'Transfer Stopped:'}</strong> {importStatus.error || (importStatus.status === 'failed' ? 'An unexpected error occurred during transfer.' : 'Import was stopped by user.')}
+                                <strong>{importStatus.status === 'failed' ? 'Import Failed:' : 'Transfer Stopped:'}</strong> {importStatus.error || (importStatus.status === 'failed' ? 'An error occurred during transfer.' : 'Import was stopped by user.')}
                             </div>
                             <button
                                 type="button"
@@ -792,7 +834,7 @@ export default function ServerImporterScreen() {
                         ></div>
                     </div>
 
-                    {/* Statistics Metrics Grid */}
+                    {/* Statistics Metrics Grid: 5 columns */}
                     <div className="imp-metrics-grid">
                         <div className="imp-metric-card">
                             <span className="imp-metric-val">{importStatus.status === 'scanning' ? 'Indexing...' : `${importStatus.progress_percent}%`}</span>
@@ -823,9 +865,16 @@ export default function ServerImporterScreen() {
                             </span>
                             <span className="imp-metric-lbl">Transfer Rate</span>
                         </div>
+
+                        <div className="imp-metric-card">
+                            <span className="imp-metric-val" style={{ color: '#60a5fa' }}>
+                                {importStatus.status === 'scanning' ? 'Calculating...' : formatEta(importStatus.eta_seconds, importStatus.bytes_transferred, importStatus.bytes_total, importStatus.speed_bytes_sec)}
+                            </span>
+                            <span className="imp-metric-lbl">Estimated Time</span>
+                        </div>
                     </div>
 
-                    {/* Current File Banner */}
+                    {/* Current Operation Banner */}
                     <div style={{
                         padding: '8px 12px',
                         background: 'rgba(15, 23, 42, 0.6)',
@@ -852,7 +901,7 @@ export default function ServerImporterScreen() {
                             importStatus.logs.map((log, index) => {
                                 const isErr = log.includes('ERROR') || log.includes('Failed');
                                 const isSucc = log.includes('successfully') || log.includes('completed');
-                                const isWarn = log.includes('Warning') || log.includes('Excluded');
+                                const isWarn = log.includes('Warning') || log.includes('Skipped') || log.includes('Excluded');
                                 return (
                                     <div
                                         key={index}

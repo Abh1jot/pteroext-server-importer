@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 
 if (!defined('NET_SFTP_QUEUE_SIZE')) {
-    define('NET_SFTP_QUEUE_SIZE', 128);
+    define('NET_SFTP_QUEUE_SIZE', 256);
 }
 
 class SftpImporterService
@@ -463,12 +463,15 @@ class SftpImporterService
                     $elapsed = $now - $startTime;
                     $speed = $elapsed > 0 ? round($transferredBytes / $elapsed) : 0;
                     $percent = $totalBytes > 0 ? min(100, round(($transferredBytes / $totalBytes) * 100, 1)) : 100;
+                    $remainingBytes = max(0, $totalBytes - $transferredBytes);
+                    $etaSeconds = ($speed > 0 && $remainingBytes > 0) ? (int)round($remainingBytes / $speed) : null;
 
                     $this->updateStatus($statusFile, [
                         'current_file' => $relativeFilePath,
                         'files_transferred' => $transferredCount,
                         'bytes_transferred' => $transferredBytes,
                         'speed_bytes_sec' => $speed,
+                        'eta_seconds' => $etaSeconds,
                         'progress_percent' => $percent,
                         'updated_at' => time(),
                     ]);
