@@ -2,7 +2,7 @@ await Promise.all(["server-importer.css"].map(file => new Promise((resolve, reje
 import { definePterodactylExtension as r } from "@pterodactyl/sdk";
 const o = r({
   setup({ screens: e }) {
-    e.register("server-importer", () => import("./chunk.ServerImporterScreen.B7J1EMz-.js"));
+    e.register("server-importer", () => import("./chunk.ServerImporterScreen.8UtSnFkl.js"));
   }
 });
 export {

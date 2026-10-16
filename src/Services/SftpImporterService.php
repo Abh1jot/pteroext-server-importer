@@ -8,6 +8,10 @@ use Pterodactyl\Models\Server;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Log;
 
+if (!defined('NET_SFTP_QUEUE_SIZE')) {
+    define('NET_SFTP_QUEUE_SIZE', 128);
+}
+
 class SftpImporterService
 {
     /**
@@ -260,6 +264,12 @@ class SftpImporterService
             'error' => null,
         ];
 
+        // Set execution limits
+        @ini_set('memory_limit', '1024M');
+        @ini_set('max_execution_time', '0');
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+
         File::put($statusFile, json_encode($status, JSON_PRETTY_PRINT));
 
         // If running in PHP-FPM, finish the HTTP response immediately to prevent browser timeouts
@@ -270,15 +280,11 @@ class SftpImporterService
                 'status' => $status,
             ])->send();
             fastcgi_finish_request();
-            @set_time_limit(0);
-            @ignore_user_abort(true);
             $this->executeImport($server, $params, $statusFile);
             exit(0);
         }
 
-        // For non-FPM environments, run with extended time limit
-        @set_time_limit(0);
-        @ignore_user_abort(true);
+        // For non-FPM environments, run synchronously
         $this->executeImport($server, $params, $statusFile);
 
         return [
@@ -293,6 +299,11 @@ class SftpImporterService
      */
     protected function executeImport(Server $server, array $params, string $statusFile): void
     {
+        @ini_set('memory_limit', '1024M');
+        @ini_set('max_execution_time', '0');
+        @set_time_limit(0);
+        @ignore_user_abort(true);
+
         // Ensure bundled phpseclib3 autoloader is loaded
         if (file_exists(__DIR__ . '/../../vendor/autoload.php')) {
             require_once __DIR__ . '/../../vendor/autoload.php';
@@ -301,8 +312,8 @@ class SftpImporterService
         [$host, $port] = $this->normalizeHostAndPort((string)($params['host'] ?? ''), (int)($params['port'] ?? 2022));
         $username = trim((string)($params['username'] ?? ''));
         $password = (string)($params['password'] ?? '');
-        $sourcePath = '/' . ltrim((string)($params['source_path'] ?? '/'), '/');
-        $targetPath = '/' . ltrim((string)($params['target_path'] ?? '/'), '/');
+        $sourcePath = '/' . trim((string)($params['source_path'] ?? '/'), '/');
+        $targetPath = '/' . trim((string)($params['target_path'] ?? '/'), '/');
         $wipeTarget = (bool)($params['wipe_target'] ?? false);
         $overwrite = (bool)($params['overwrite'] ?? true);
         $excludeCommon = (bool)($params['exclude_common'] ?? true);
@@ -312,7 +323,7 @@ class SftpImporterService
         $patterns = [];
         if ($excludeCommon) {
             $patterns = array_merge($patterns, [
-                '*.log', '*.log.gz', 'crash-reports/*', 'logs/*', 'backups/*', 'cache/*', '.git/*', '.env', 'session.lock'
+                '*.log', '*.log.gz', 'crash-reports/*', 'logs/*', 'backups/*', 'cache/*', '.git/*', '.env', 'session.lock', 'libraries/*', '*.tmp', '*.jfr', '*.jfr.tmp', 'plugins/*/tmp/*', 'tmp/*'
             ]);
         }
         if (!empty($customExclusions)) {
@@ -324,7 +335,6 @@ class SftpImporterService
         }
 
         // Get server filesystem destination
-        // In Pterodactyl, files reside at /var/lib/pterodactyl/volumes/{server->uuid} or via Wings
         $localVolumePath = '/var/lib/pterodactyl/volumes/' . $server->uuid;
         $destRoot = File::isDirectory($localVolumePath) ? $localVolumePath : (storage_path('app/servers/' . $server->uuid));
 
@@ -332,7 +342,7 @@ class SftpImporterService
             @File::makeDirectory($destRoot, 0755, true, true);
         }
 
-        $destFullPath = rtrim($destRoot, '/') . '/' . ltrim($targetPath, '/');
+        $destFullPath = rtrim($destRoot, '/') . ($targetPath !== '/' ? '/' . ltrim($targetPath, '/') : '');
         if (!File::isDirectory($destFullPath)) {
             @File::makeDirectory($destFullPath, 0755, true, true);
         }
@@ -357,17 +367,28 @@ class SftpImporterService
         }
 
         try {
-            $sftp = new \phpseclib3\Net\SFTP($host, $port, 15);
+            $sftp = new \phpseclib3\Net\SFTP($host, $port, 20);
             if (!$sftp->login($username, $password)) {
                 $this->failImport($statusFile, 'Authentication failed on remote SFTP server.');
                 return;
             }
 
             $this->appendLog($statusFile, "Connected to remote SFTP successfully. Scanning files in {$sourcePath}...");
+            $this->updateStatus($statusFile, [
+                'current_file' => "Scanning remote directory tree...",
+                'updated_at' => time(),
+            ]);
 
-            // Scan files recursively
+            // Scan files recursively with cycle detection & live feedback
             $filesToTransfer = [];
-            $this->scanRemoteRecursive($sftp, $sourcePath, '', $patterns, $filesToTransfer, $statusFile);
+            $visitedDirs = [];
+            $this->scanRemoteRecursive($sftp, $sourcePath, '', $patterns, $filesToTransfer, $statusFile, $visitedDirs, 0);
+
+            if ($this->isCancelled($statusFile)) {
+                $this->appendLog($statusFile, "Import was cancelled by user.");
+                $this->updateStatus($statusFile, ['status' => 'cancelled']);
+                return;
+            }
 
             $totalCount = count($filesToTransfer);
             $totalBytes = array_sum(array_column($filesToTransfer, 'size'));
@@ -376,14 +397,28 @@ class SftpImporterService
                 'status' => 'transferring',
                 'files_total' => $totalCount,
                 'bytes_total' => $totalBytes,
-                'current_file' => 'Starting file download...',
+                'current_file' => $totalCount > 0 ? 'Starting file transfer...' : 'No files found to transfer.',
+                'updated_at' => time(),
             ]);
 
             $this->appendLog($statusFile, "Discovered {$totalCount} files to import (" . $this->formatBytes($totalBytes) . ").");
 
+            if ($totalCount === 0) {
+                $this->appendLog($statusFile, "No matching files were discovered in {$sourcePath}.");
+                $this->updateStatus($statusFile, [
+                    'status' => 'completed',
+                    'progress_percent' => 100,
+                    'current_file' => 'Import complete (0 files).',
+                    'speed_bytes_sec' => 0,
+                    'updated_at' => time(),
+                ]);
+                return;
+            }
+
             $transferredCount = 0;
             $transferredBytes = 0;
             $startTime = microtime(true);
+            $lastProgressUpdate = microtime(true);
 
             foreach ($filesToTransfer as $f) {
                 // Check if user cancelled
@@ -395,7 +430,7 @@ class SftpImporterService
 
                 $remoteFilePath = $f['full_path'];
                 $relativeFilePath = $f['relative_path'];
-                $fileSize = $f['size'];
+                $fileSize = (int)$f['size'];
 
                 $localFilePath = rtrim($destFullPath, '/') . '/' . ltrim($relativeFilePath, '/');
                 $localFileDir = dirname($localFilePath);
@@ -408,56 +443,49 @@ class SftpImporterService
                 if (File::exists($localFilePath) && !$overwrite) {
                     $transferredCount++;
                     $transferredBytes += $fileSize;
-                    $this->appendLog($statusFile, "Skipped existing file: {$relativeFilePath}");
                     continue;
                 }
 
-                $this->updateStatus($statusFile, [
-                    'current_file' => $relativeFilePath,
-                    'files_transferred' => $transferredCount,
-                    'bytes_transferred' => $transferredBytes,
-                    'progress_percent' => $totalBytes > 0 ? round(($transferredBytes / $totalBytes) * 100, 1) : 100,
-                ]);
-
-                // Stream remote file to local disk
-                $stream = fopen($localFilePath, 'w+b');
-                if ($stream === false) {
-                    $this->appendLog($statusFile, "Warning: Could not open local path {$relativeFilePath} for writing.");
-                    continue;
-                }
-
-                $fetchSuccess = $sftp->get($remoteFilePath, $stream);
-                fclose($stream);
+                // Stream remote file directly to local destination path
+                $fetchSuccess = $sftp->get($remoteFilePath, $localFilePath);
 
                 if ($fetchSuccess === false) {
-                    $this->appendLog($statusFile, "Warning: Failed to download {$relativeFilePath}.");
+                    $this->appendLog($statusFile, "Warning: Failed to download {$relativeFilePath}");
                 } else {
                     $transferredCount++;
                     $transferredBytes += $fileSize;
                 }
 
-                // Calculate speed
-                $elapsed = microtime(true) - $startTime;
-                $speed = $elapsed > 0 ? round($transferredBytes / $elapsed) : 0;
+                // Throttled UI status update (at most every 0.4s or on completion)
+                $now = microtime(true);
+                if ($now - $lastProgressUpdate > 0.4 || $transferredCount === $totalCount) {
+                    $lastProgressUpdate = $now;
+                    $elapsed = $now - $startTime;
+                    $speed = $elapsed > 0 ? round($transferredBytes / $elapsed) : 0;
+                    $percent = $totalBytes > 0 ? min(100, round(($transferredBytes / $totalBytes) * 100, 1)) : 100;
 
-                $this->updateStatus($statusFile, [
-                    'files_transferred' => $transferredCount,
-                    'bytes_transferred' => $transferredBytes,
-                    'speed_bytes_sec' => $speed,
-                    'progress_percent' => $totalBytes > 0 ? min(100, round(($transferredBytes / $totalBytes) * 100, 1)) : 100,
-                ]);
+                    $this->updateStatus($statusFile, [
+                        'current_file' => $relativeFilePath,
+                        'files_transferred' => $transferredCount,
+                        'bytes_transferred' => $transferredBytes,
+                        'speed_bytes_sec' => $speed,
+                        'progress_percent' => $percent,
+                        'updated_at' => time(),
+                    ]);
+                }
             }
 
             // Completed!
-            $duration = round(microtime(true) - $startTime, 1);
-            $this->appendLog($statusFile, "Import successfully completed! Transferred {$transferredCount} files in {$duration}s.");
+            $duration = max(1, round(microtime(true) - $startTime, 1));
+            $this->appendLog($statusFile, "Import completed successfully! Transferred {$transferredCount} files (" . $this->formatBytes($transferredBytes) . ") in {$duration}s.");
             $this->updateStatus($statusFile, [
                 'status' => 'completed',
                 'progress_percent' => 100,
-                'files_transferred' => $totalCount,
-                'bytes_transferred' => $totalBytes,
+                'files_transferred' => $transferredCount,
+                'bytes_transferred' => $transferredBytes,
                 'current_file' => 'All files imported successfully.',
                 'speed_bytes_sec' => 0,
+                'updated_at' => time(),
             ]);
 
         } catch (\Throwable $e) {
@@ -466,51 +494,157 @@ class SftpImporterService
     }
 
     /**
-     * Recursively scan remote SFTP path.
+     * Recursively scan remote SFTP path safely with cycle detection, depth limits, and live reporting.
      */
-    protected function scanRemoteRecursive($sftp, string $basePath, string $relPath, array $patterns, array &$files, string $statusFile): void
-    {
-        $currentFull = rtrim($basePath, '/') . ($relPath ? '/' . ltrim($relPath, '/') : '');
-        $list = $sftp->rawlist($currentFull);
-        if ($list === false) return;
+    protected function scanRemoteRecursive(
+        \phpseclib3\Net\SFTP $sftp,
+        string $basePath,
+        string $relPath,
+        array $patterns,
+        array &$files,
+        string $statusFile,
+        array &$visitedDirs = [],
+        int $depth = 0
+    ): void {
+        // Prevent runaway recursion
+        if ($depth > 8) {
+            return;
+        }
 
-        foreach ($list as $name => $info) {
+        // Check if user cancelled
+        if ($this->isCancelled($statusFile)) {
+            return;
+        }
+
+        // Compute normalized remote path
+        $cleanBase = '/' . trim($basePath, '/');
+        if ($cleanBase === '/') {
+            $cleanBase = '';
+        }
+        $cleanRel = trim($relPath, '/');
+        $currentFull = $cleanBase . ($cleanRel !== '' ? '/' . $cleanRel : '');
+        if ($currentFull === '') {
+            $currentFull = '/';
+        }
+
+        // Prevent symlink cycles
+        if (isset($visitedDirs[$currentFull])) {
+            return;
+        }
+        $visitedDirs[$currentFull] = true;
+
+        // Fetch directory listing
+        $rawList = $sftp->rawlist($currentFull);
+        if ($rawList === false) {
+            $rawList = $sftp->nlist($currentFull);
+            if ($rawList === false || !is_array($rawList)) {
+                return;
+            }
+            $temp = [];
+            foreach ($rawList as $n) {
+                if ($n === '.' || $n === '..') continue;
+                $cF = ($currentFull === '/' ? '' : $currentFull) . '/' . $n;
+                $isDir = $sftp->is_dir($cF);
+                $temp[$n] = [
+                    'type' => $isDir ? 2 : 1,
+                    'size' => $isDir ? 0 : ($sftp->size($cF) ?: 0),
+                ];
+            }
+            $rawList = $temp;
+        }
+
+        // Periodic live UI status update during deep scanning
+        static $lastReportTime = 0.0;
+        $now = microtime(true);
+        if ($now - $lastReportTime > 0.8 || count($files) === 1) {
+            $lastReportTime = $now;
+            $this->updateStatus($statusFile, [
+                'current_file' => "Scanning: {$currentFull} (" . count($files) . " files found)...",
+                'files_total' => count($files),
+                'bytes_total' => array_sum(array_column($files, 'size')),
+                'updated_at' => time(),
+            ]);
+        }
+
+        if ($depth <= 1 && $currentFull !== '/') {
+            $this->appendLog($statusFile, "Scanning {$currentFull}... (" . count($files) . " files indexed so far)");
+        }
+
+        foreach ($rawList as $name => $info) {
             if ($name === '.' || $name === '..') continue;
 
-            $childRel = $relPath ? ($relPath . '/' . $name) : $name;
-            $childFull = rtrim($currentFull, '/') . '/' . $name;
+            $childRel = $cleanRel !== '' ? ($cleanRel . '/' . $name) : $name;
+            $childFull = ($currentFull === '/' ? '' : $currentFull) . '/' . $name;
+
+            $type = is_array($info) ? ($info['type'] ?? 0) : 0;
+            $mode = is_array($info) ? ($info['mode'] ?? 0) : 0;
+            $isDir = ($type === 2 || ($mode & 0040000) === 0040000);
 
             // Pattern exclusion check
-            if ($this->isExcluded($childRel, $patterns)) {
-                $this->appendLog($statusFile, "Excluded by rule: {$childRel}");
+            if ($this->isExcluded($childRel, $isDir, $patterns)) {
+                if ($isDir) {
+                    $this->appendLog($statusFile, "Skipped excluded folder: {$childRel}/");
+                }
                 continue;
             }
 
-            $type = $info['type'] ?? 0;
-            $isDir = ($type === 2 || ($info['mode'] ?? 0) & 0040000);
-
             if ($isDir) {
-                $this->scanRemoteRecursive($sftp, $basePath, $childRel, $patterns, $files, $statusFile);
+                $this->scanRemoteRecursive(
+                    $sftp,
+                    $basePath,
+                    $childRel,
+                    $patterns,
+                    $files,
+                    $statusFile,
+                    $visitedDirs,
+                    $depth + 1
+                );
             } else {
+                $size = is_array($info) ? ($info['size'] ?? 0) : 0;
                 $files[] = [
                     'full_path' => $childFull,
                     'relative_path' => $childRel,
-                    'size' => (int)($info['size'] ?? 0),
+                    'size' => (int) $size,
                 ];
             }
         }
     }
 
     /**
-     * Check if a path matches any exclusion patterns.
+     * Check if a path or directory matches any exclusion patterns.
      */
-    protected function isExcluded(string $path, array $patterns): bool
+    protected function isExcluded(string $path, bool $isDir, array $patterns): bool
     {
+        $cleanPath = trim($path, '/');
+        $base = basename($cleanPath);
+
         foreach ($patterns as $pattern) {
-            if (fnmatch($pattern, $path, FNM_PATHNAME) || fnmatch($pattern, basename($path))) {
+            $pattern = trim($pattern);
+            if ($pattern === '') continue;
+
+            $dirPattern = rtrim($pattern, '/*');
+
+            // 1. Direct directory match
+            if ($isDir) {
+                if ($base === $dirPattern || $cleanPath === $dirPattern) {
+                    return true;
+                }
+                if (fnmatch($dirPattern, $base) || fnmatch($dirPattern, $cleanPath)) {
+                    return true;
+                }
+            }
+
+            // 2. Child item inside an excluded directory
+            if ($dirPattern !== '' && (str_starts_with($cleanPath, $dirPattern . '/') || str_starts_with($base, $dirPattern . '/'))) {
+                return true;
+            }
+
+            // 3. Filename or path glob match
+            if (fnmatch($pattern, $cleanPath) || fnmatch($pattern, $base)) {
                 return true;
             }
         }
+
         return false;
     }
 
@@ -563,6 +697,7 @@ class SftpImporterService
             'status' => 'failed',
             'error' => $error,
             'current_file' => 'Import halted with error.',
+            'updated_at' => time(),
         ]);
     }
 
@@ -592,9 +727,9 @@ class SftpImporterService
             return ['status' => 'idle'];
         }
 
-        // Auto-recover stale jobs if updated_at is older than 2 minutes and status was transferring
+        // Auto-recover stale jobs if updated_at is older than 5 minutes and status was transferring/scanning
         if (in_array($data['status'] ?? '', ['transferring', 'scanning'])) {
-            if (time() - ($data['updated_at'] ?? 0) > 120) {
+            if (time() - ($data['updated_at'] ?? 0) > 300) {
                 $data['status'] = 'failed';
                 $data['error'] = 'Transfer timed out or was interrupted.';
                 File::put($statusFile, json_encode($data, JSON_PRETTY_PRINT));
@@ -614,8 +749,9 @@ class SftpImporterService
             $this->updateStatus($statusFile, [
                 'status' => 'cancelled',
                 'current_file' => 'Import cancelled by user.',
+                'updated_at' => time(),
             ]);
-            $this->appendLog($statusFile, "Cancellation requested by server administrator.");
+            $this->appendLog($statusFile, "Cancellation requested by user.");
         }
         return ['success' => true, 'message' => 'Import cancellation requested.'];
     }

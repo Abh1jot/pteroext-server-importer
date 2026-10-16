@@ -318,6 +318,17 @@
     box-shadow: 0 0 14px rgba(6, 182, 212, 0.6);
 }
 
+@keyframes imp-indeterminate {
+    0% { transform: translateX(-100%); width: 40%; }
+    50% { width: 60%; }
+    100% { transform: translateX(250%); width: 40%; }
+}
+
+.imp-progress-fill.scanning {
+    width: 40%;
+    animation: imp-indeterminate 1.8s infinite ease-in-out;
+}
+
 /* Metric Statistics Cards */
 .imp-metrics-grid {
     display: grid;

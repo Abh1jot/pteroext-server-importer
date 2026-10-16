@@ -1,18 +1,18 @@
 import { jsxs as t, jsx as e } from "react/jsx-runtime";
 import { useState as l, useRef as pe, useEffect as Z } from "react";
-import { useCurrentServerRequired as me, toast as d } from "@pterodactyl/sdk";
+import { useCurrentServerRequired as me, toast as p } from "@pterodactyl/sdk";
 const he = () => {
-  const n = document.querySelector('meta[name="csrf-token"]');
-  return n && n.getAttribute("content") || "";
+  const a = document.querySelector('meta[name="csrf-token"]');
+  return a && a.getAttribute("content") || "";
 };
-function R(n) {
-  return !n || n <= 0 ? "0 B" : n >= 1073741824 ? (n / 1073741824).toFixed(2) + " GB" : n >= 1048576 ? (n / 1048576).toFixed(2) + " MB" : n >= 1024 ? (n / 1024).toFixed(1) + " KB" : n + " B";
+function B(a) {
+  return !a || a <= 0 ? "0 B" : a >= 1073741824 ? (a / 1073741824).toFixed(2) + " GB" : a >= 1048576 ? (a / 1048576).toFixed(2) + " MB" : a >= 1024 ? (a / 1024).toFixed(1) + " KB" : a + " B";
 }
-function ue(n) {
-  return !n || n <= 0 ? "0 KB/s" : n >= 1048576 ? (n / 1048576).toFixed(2) + " MB/s" : (n / 1024).toFixed(1) + " KB/s";
+function ue(a) {
+  return !a || a <= 0 ? "0 KB/s" : a >= 1048576 ? (a / 1048576).toFixed(2) + " MB/s" : (a / 1024).toFixed(1) + " KB/s";
 }
 function be() {
-  const n = me(), v = n?.attributes?.identifier || n?.identifier || "", [c, p] = l(1), [u, j] = l(""), [x, I] = l(2022), [m, Y] = l(""), [h, G] = l(""), [S, X] = l(!1), [z, L] = l(!1), [T, N] = l(null), [g, O] = l("/"), [k, Q] = l("/"), [E, ee] = l([]), [te, ie] = l(!1), [$, M] = l(!1), [f, se] = l(!1), [P, W] = l(!1), [H, re] = l(!0), [D, ne] = l(!0), [A, ae] = l(""), [a, U] = l({
+  const a = me(), v = a?.attributes?.identifier || a?.identifier || "", [c, o] = l(1), [u, j] = l(""), [x, R] = l(2022), [m, Y] = l(""), [h, G] = l(""), [S, X] = l(!1), [z, L] = l(!1), [T, N] = l(null), [g, O] = l("/"), [k, Q] = l("/"), [$, ee] = l([]), [te, ie] = l(!1), [E, M] = l(!1), [f, se] = l(!1), [P, W] = l(!1), [D, ne] = l(!0), [H, re] = l(!0), [A, ae] = l(""), [n, U] = l({
     status: "idle",
     progress_percent: 0,
     files_total: 0,
@@ -28,10 +28,10 @@ function be() {
       `/api/client/servers/${v}/extensions/server-importer/${i}`,
       `/api/client/servers/${v}/server-importer/${i}`
     ];
-    let o = null;
-    for (const B of r)
+    let d = null;
+    for (const I of r)
       try {
-        const C = await fetch(B, {
+        const C = await fetch(I, {
           ...s,
           headers: {
             Accept: "application/json",
@@ -41,17 +41,17 @@ function be() {
         });
         if (C.status !== 404)
           return C;
-        o = C;
+        d = C;
       } catch {
       }
-    return o || fetch(r[0], s);
+    return d || fetch(r[0], s);
   }, F = async () => {
     if (v)
       try {
         const i = await y("status");
         if (i.ok) {
           const s = await i.json();
-          U(s), (s.status === "scanning" || s.status === "transferring") && p(4);
+          U(s), (s.status === "scanning" || s.status === "transferring") && o(4);
         }
       } catch {
       }
@@ -59,25 +59,25 @@ function be() {
   Z(() => {
     F();
     const i = setInterval(() => {
-      (a.status === "scanning" || a.status === "transferring" || c === 4) && F();
+      (n.status === "scanning" || n.status === "transferring" || c === 4) && F();
     }, 1500);
     return () => clearInterval(i);
-  }, [v, a.status, c]), Z(() => {
+  }, [v, n.status, c]), Z(() => {
     w.current && (w.current.scrollTop = w.current.scrollHeight);
-  }, [a.logs]);
+  }, [n.logs]);
   const le = (i) => {
     let s = i.trim();
     if (s.includes("://") && (s = s.split("://")[1]), s = s.split("/")[0], s.includes(":")) {
       const r = s.split(":");
       j(r[0]);
-      const o = Number(r[1]);
-      o && !isNaN(o) && I(o);
+      const d = Number(r[1]);
+      d && !isNaN(d) && R(d);
     } else
       j(s);
   }, ce = async () => {
     const i = u.replace(/^[a-zA-Z0-9]+:\/\//, "").split("/")[0].split(":")[0].trim();
     if (!i || !m || !h) {
-      d.error("Please enter Host, Username, and Password first.");
+      p.error("Please enter Host, Username, and Password first.");
       return;
     }
     L(!0), N(null);
@@ -87,9 +87,9 @@ function be() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ host: i, port: x, username: m, password: h })
       }), r = await s.json();
-      s.ok && r.success ? (N({ success: !0, message: r.message }), d.success("SFTP Connection verified successfully!")) : (N({ success: !1, message: r.message || "Connection failed" }), d.error(r.message || "Failed to connect to SFTP"));
+      s.ok && r.success ? (N({ success: !0, message: r.message }), p.success("SFTP Connection verified successfully!")) : (N({ success: !1, message: r.message || "Connection failed" }), p.error(r.message || "Failed to connect to SFTP"));
     } catch (s) {
-      N({ success: !1, message: s.message || "Network error" }), d.error(s.message || "Network error");
+      N({ success: !1, message: s.message || "Network error" }), p.error(s.message || "Network error");
     } finally {
       L(!1);
     }
@@ -102,20 +102,20 @@ function be() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ host: s, port: x, username: m, password: h, path: i })
-      }), o = await r.json();
-      r.ok && o.entries ? (ee(o.entries), O(o.current_path || i), ie(!0)) : d.error(o.error || "Failed to list remote directory");
+      }), d = await r.json();
+      r.ok && d.entries ? (ee(d.entries), O(d.current_path || i), ie(!0)) : p.error(d.error || "Failed to list remote directory");
     } catch (r) {
-      d.error(r.message || "Error exploring remote files");
+      p.error(r.message || "Error exploring remote files");
     } finally {
       M(!1);
     }
   }, oe = async () => {
     if (!u || !m || !h) {
-      d.error("Missing SFTP credentials."), p(1);
+      p.error("Missing SFTP credentials."), o(1);
       return;
     }
     if (f && !P) {
-      d.error("Please confirm destination wiping before proceeding.");
+      p.error("Please confirm destination wiping before proceeding.");
       return;
     }
     const i = u.replace(/^[a-zA-Z0-9]+:\/\//, "").split("/")[0].split(":")[0].trim();
@@ -132,14 +132,14 @@ function be() {
           source_path: g,
           target_path: k,
           wipe_target: f,
-          overwrite: H,
-          exclude_common: D,
+          overwrite: D,
+          exclude_common: H,
           custom_exclusions: A
         })
       }), r = await s.json();
-      s.ok && r.success ? (d.success("Migration initiated!"), p(4), r.status && U(r.status)) : d.error(r.message || "Failed to start import.");
+      s.ok && r.success ? (p.success("Migration initiated!"), o(4), r.status && U(r.status)) : p.error(r.message || "Failed to start import.");
     } catch (s) {
-      d.error(s.message || "Connection error starting import.");
+      p.error(s.message || "Connection error starting import.");
     } finally {
       q(!1);
     }
@@ -148,14 +148,14 @@ function be() {
       V(!0);
       try {
         const i = await y("cancel", { method: "POST" }), s = await i.json();
-        i.ok && (d.info("Cancellation requested."), F());
+        i.ok && (p.info("Cancellation requested."), F());
       } catch {
-        d.error("Failed to cancel import.");
+        p.error("Failed to cancel import.");
       } finally {
         V(!1);
       }
     }
-  }, b = a.status === "scanning" || a.status === "transferring";
+  }, b = n.status === "scanning" || n.status === "transferring";
   return /* @__PURE__ */ t("div", { className: "imp-container", children: [
     /* @__PURE__ */ t("div", { className: "imp-header", children: [
       /* @__PURE__ */ t("div", { className: "imp-title-wrap", children: [
@@ -172,7 +172,7 @@ function be() {
       b && /* @__PURE__ */ t("span", { className: "imp-btn imp-btn-primary !text-xs !py-1 !px-3", children: [
         /* @__PURE__ */ e("span", { className: "w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block mr-1" }),
         "Transfer Active (",
-        a.progress_percent,
+        n.progress_percent,
         "%)"
       ] })
     ] }),
@@ -182,7 +182,7 @@ function be() {
         {
           type: "button",
           className: `imp-step-item ${c === 1 ? "active" : ""} ${c > 1 ? "completed" : ""}`,
-          onClick: () => !b && p(1),
+          onClick: () => !b && o(1),
           children: [
             /* @__PURE__ */ e("span", { className: "imp-step-badge", children: "1" }),
             /* @__PURE__ */ e("span", { children: "SFTP Details" })
@@ -194,7 +194,7 @@ function be() {
         {
           type: "button",
           className: `imp-step-item ${c === 2 ? "active" : ""} ${c > 2 ? "completed" : ""}`,
-          onClick: () => !b && p(2),
+          onClick: () => !b && o(2),
           children: [
             /* @__PURE__ */ e("span", { className: "imp-step-badge", children: "2" }),
             /* @__PURE__ */ e("span", { children: "Paths & Files" })
@@ -206,7 +206,7 @@ function be() {
         {
           type: "button",
           className: `imp-step-item ${c === 3 ? "active" : ""} ${c > 3 ? "completed" : ""}`,
-          onClick: () => !b && p(3),
+          onClick: () => !b && o(3),
           children: [
             /* @__PURE__ */ e("span", { className: "imp-step-badge", children: "3" }),
             /* @__PURE__ */ e("span", { children: "Options" })
@@ -218,7 +218,7 @@ function be() {
         {
           type: "button",
           className: `imp-step-item ${c === 4 ? "active" : ""}`,
-          onClick: () => p(4),
+          onClick: () => o(4),
           children: [
             /* @__PURE__ */ e("span", { className: "imp-step-badge", children: "4" }),
             /* @__PURE__ */ e("span", { children: "Live Progress" })
@@ -271,7 +271,7 @@ function be() {
               className: "imp-input",
               placeholder: "2022",
               value: x,
-              onChange: (i) => I(Number(i.target.value))
+              onChange: (i) => R(Number(i.target.value))
             }
           )
         ] }),
@@ -340,7 +340,7 @@ function be() {
           {
             type: "button",
             className: "imp-btn imp-btn-primary",
-            onClick: () => p(2),
+            onClick: () => o(2),
             disabled: !u || !m || !h,
             children: "Continue to Paths →"
           }
@@ -372,8 +372,8 @@ function be() {
                 type: "button",
                 className: "imp-btn imp-btn-secondary",
                 onClick: () => _(g || "/"),
-                disabled: $,
-                children: $ ? "Loading..." : "Browse"
+                disabled: E,
+                children: E ? "Loading..." : "Browse"
               }
             )
           ] }),
@@ -427,7 +427,7 @@ function be() {
             }
           )
         ] }),
-        /* @__PURE__ */ e("div", { style: { maxHeight: 200, overflowY: "auto" }, children: E.length === 0 ? /* @__PURE__ */ e("div", { style: { fontSize: "0.75rem", color: "#64748b", textAlign: "center", padding: 16 }, children: "No files found or directory is empty." }) : E.map((i, s) => /* @__PURE__ */ t(
+        /* @__PURE__ */ e("div", { style: { maxHeight: 200, overflowY: "auto" }, children: $.length === 0 ? /* @__PURE__ */ e("div", { style: { fontSize: "0.75rem", color: "#64748b", textAlign: "center", padding: 16 }, children: "No files found or directory is empty." }) : $.map((i, s) => /* @__PURE__ */ t(
           "div",
           {
             style: {
@@ -448,15 +448,15 @@ function be() {
                 " ",
                 i.name
               ] }),
-              /* @__PURE__ */ e("span", { style: { fontSize: "0.75rem", color: "#64748b" }, children: i.is_dir ? "Folder" : R(i.size) })
+              /* @__PURE__ */ e("span", { style: { fontSize: "0.75rem", color: "#64748b" }, children: i.is_dir ? "Folder" : B(i.size) })
             ]
           },
           s
         )) })
       ] }),
       /* @__PURE__ */ t("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24 }, children: [
-        /* @__PURE__ */ e("button", { type: "button", className: "imp-btn imp-btn-secondary", onClick: () => p(1), children: "← Back" }),
-        /* @__PURE__ */ e("button", { type: "button", className: "imp-btn imp-btn-primary", onClick: () => p(3), children: "Continue to Options →" })
+        /* @__PURE__ */ e("button", { type: "button", className: "imp-btn imp-btn-secondary", onClick: () => o(1), children: "← Back" }),
+        /* @__PURE__ */ e("button", { type: "button", className: "imp-btn imp-btn-primary", onClick: () => o(3), children: "Continue to Options →" })
       ] })
     ] }),
     c === 3 && /* @__PURE__ */ t("div", { className: "imp-card", children: [
@@ -480,8 +480,8 @@ function be() {
             "input",
             {
               type: "checkbox",
-              checked: H,
-              onChange: (i) => re(i.target.checked),
+              checked: D,
+              onChange: (i) => ne(i.target.checked),
               style: { marginTop: 4 }
             }
           ),
@@ -495,8 +495,8 @@ function be() {
             "input",
             {
               type: "checkbox",
-              checked: D,
-              onChange: (i) => ne(i.target.checked),
+              checked: H,
+              onChange: (i) => re(i.target.checked),
               style: { marginTop: 4 }
             }
           ),
@@ -570,7 +570,7 @@ function be() {
         ] })
       ] }),
       /* @__PURE__ */ t("div", { style: { display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 24 }, children: [
-        /* @__PURE__ */ e("button", { type: "button", className: "imp-btn imp-btn-secondary", onClick: () => p(2), children: "← Back" }),
+        /* @__PURE__ */ e("button", { type: "button", className: "imp-btn imp-btn-secondary", onClick: () => o(2), children: "← Back" }),
         /* @__PURE__ */ e(
           "button",
           {
@@ -593,8 +593,8 @@ function be() {
           "Migration Pipeline Status:  ",
           /* @__PURE__ */ e("span", { style: {
             textTransform: "uppercase",
-            color: a.status === "completed" ? "#34d399" : a.status === "failed" ? "#f87171" : "#60a5fa"
-          }, children: a.status })
+            color: n.status === "completed" ? "#34d399" : n.status === "failed" ? "#f87171" : "#60a5fa"
+          }, children: n.status })
         ] }),
         /* @__PURE__ */ e("div", { children: b ? /* @__PURE__ */ e(
           "button",
@@ -609,45 +609,56 @@ function be() {
           "button",
           {
             type: "button",
-            className: "imp-btn imp-btn-secondary !text-xs !py-1 !px-3",
-            onClick: () => p(1),
-            children: "New Migration"
+            className: "imp-btn imp-btn-primary !text-xs !py-1 !px-3",
+            onClick: () => o(1),
+            children: "Start New Migration →"
           }
         ) })
+      ] }),
+      (n.status === "failed" || n.status === "cancelled") && /* @__PURE__ */ t("div", { className: "imp-alert imp-alert-warning", style: { marginBottom: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }, children: [
+        /* @__PURE__ */ t("div", { children: [
+          /* @__PURE__ */ e("strong", { children: n.status === "failed" ? "Import Failed:" : "Transfer Stopped:" }),
+          " ",
+          n.error || (n.status === "failed" ? "An unexpected error occurred during transfer." : "Import was stopped by user.")
+        ] }),
+        /* @__PURE__ */ e(
+          "button",
+          {
+            type: "button",
+            className: "imp-btn imp-btn-primary !text-xs !py-1 !px-3",
+            onClick: () => o(1),
+            children: "Try Again →"
+          }
+        )
       ] }),
       /* @__PURE__ */ e("div", { className: "imp-progress-track", children: /* @__PURE__ */ e(
         "div",
         {
-          className: "imp-progress-fill",
-          style: { width: `${Math.min(100, a.progress_percent || 0)}%` }
+          className: `imp-progress-fill ${n.status === "scanning" ? "scanning" : ""}`,
+          style: {
+            width: n.status === "scanning" ? void 0 : `${Math.min(100, n.progress_percent || 0)}%`
+          }
         }
       ) }),
       /* @__PURE__ */ t("div", { className: "imp-metrics-grid", children: [
         /* @__PURE__ */ t("div", { className: "imp-metric-card", children: [
-          /* @__PURE__ */ t("span", { className: "imp-metric-val", children: [
-            a.progress_percent,
-            "%"
-          ] }),
+          /* @__PURE__ */ e("span", { className: "imp-metric-val", children: n.status === "scanning" ? "Indexing..." : `${n.progress_percent}%` }),
           /* @__PURE__ */ e("span", { className: "imp-metric-lbl", children: "Total Progress" })
         ] }),
         /* @__PURE__ */ t("div", { className: "imp-metric-card", children: [
-          /* @__PURE__ */ t("span", { className: "imp-metric-val", children: [
-            a.files_transferred,
-            " / ",
-            a.files_total
-          ] }),
-          /* @__PURE__ */ e("span", { className: "imp-metric-lbl", children: "Files Processed" })
+          /* @__PURE__ */ e("span", { className: "imp-metric-val", children: n.status === "scanning" ? `${n.files_total} Found` : `${n.files_transferred} / ${n.files_total}` }),
+          /* @__PURE__ */ e("span", { className: "imp-metric-lbl", children: n.status === "scanning" ? "Files Discovered" : "Files Processed" })
         ] }),
         /* @__PURE__ */ t("div", { className: "imp-metric-card", children: [
           /* @__PURE__ */ t("span", { className: "imp-metric-val", children: [
-            R(a.bytes_transferred),
+            B(n.bytes_transferred),
             " / ",
-            R(a.bytes_total)
+            B(n.bytes_total)
           ] }),
           /* @__PURE__ */ e("span", { className: "imp-metric-lbl", children: "Data Volume" })
         ] }),
         /* @__PURE__ */ t("div", { className: "imp-metric-card", children: [
-          /* @__PURE__ */ e("span", { className: "imp-metric-val", children: ue(a.speed_bytes_sec) }),
+          /* @__PURE__ */ e("span", { className: "imp-metric-val", children: ue(n.speed_bytes_sec) }),
           /* @__PURE__ */ e("span", { className: "imp-metric-lbl", children: "Transfer Rate" })
         ] })
       ] }),
@@ -666,14 +677,14 @@ function be() {
         textOverflow: "ellipsis"
       }, children: [
         /* @__PURE__ */ e("strong", { style: { color: "#cbd5e1" }, children: "Current Operation:" }),
-        /* @__PURE__ */ e("span", { style: { fontFamily: "monospace", color: "#60a5fa", overflow: "hidden", textOverflow: "ellipsis" }, children: a.current_file || "Idle" })
+        /* @__PURE__ */ e("span", { style: { fontFamily: "monospace", color: "#60a5fa", overflow: "hidden", textOverflow: "ellipsis" }, children: n.current_file || "Idle" })
       ] }),
-      /* @__PURE__ */ e("div", { className: "imp-terminal", ref: w, children: a.logs && a.logs.length > 0 ? a.logs.map((i, s) => {
-        const r = i.includes("ERROR") || i.includes("Failed"), o = i.includes("successfully") || i.includes("completed"), B = i.includes("Warning") || i.includes("Excluded");
+      /* @__PURE__ */ e("div", { className: "imp-terminal", ref: w, children: n.logs && n.logs.length > 0 ? n.logs.map((i, s) => {
+        const r = i.includes("ERROR") || i.includes("Failed"), d = i.includes("successfully") || i.includes("completed"), I = i.includes("Warning") || i.includes("Excluded");
         return /* @__PURE__ */ e(
           "div",
           {
-            className: `imp-terminal-line ${r ? "error" : o ? "success" : B ? "warn" : ""}`,
+            className: `imp-terminal-line ${r ? "error" : d ? "success" : I ? "warn" : ""}`,
             children: i
           },
           s

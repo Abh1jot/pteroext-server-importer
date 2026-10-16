@@ -757,35 +757,57 @@ export default function ServerImporterScreen() {
                             ) : (
                                 <button
                                     type="button"
-                                    className="imp-btn imp-btn-secondary !text-xs !py-1 !px-3"
+                                    className="imp-btn imp-btn-primary !text-xs !py-1 !px-3"
                                     onClick={() => setStep(1)}
                                 >
-                                    New Migration
+                                    Start New Migration &rarr;
                                 </button>
                             )}
                         </div>
                     </div>
 
+                    {/* Notice for failed or cancelled transfers */}
+                    {(importStatus.status === 'failed' || importStatus.status === 'cancelled') && (
+                        <div className="imp-alert imp-alert-warning" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                                <strong>{importStatus.status === 'failed' ? 'Import Failed:' : 'Transfer Stopped:'}</strong> {importStatus.error || (importStatus.status === 'failed' ? 'An unexpected error occurred during transfer.' : 'Import was stopped by user.')}
+                            </div>
+                            <button
+                                type="button"
+                                className="imp-btn imp-btn-primary !text-xs !py-1 !px-3"
+                                onClick={() => setStep(1)}
+                            >
+                                Try Again &rarr;
+                            </button>
+                        </div>
+                    )}
+
                     {/* Progress Bar */}
                     <div className="imp-progress-track">
                         <div
-                            className="imp-progress-fill"
-                            style={{ width: `${Math.min(100, importStatus.progress_percent || 0)}%` }}
+                            className={`imp-progress-fill ${importStatus.status === 'scanning' ? 'scanning' : ''}`}
+                            style={{
+                                width: importStatus.status === 'scanning' ? undefined : `${Math.min(100, importStatus.progress_percent || 0)}%`
+                            }}
                         ></div>
                     </div>
 
                     {/* Statistics Metrics Grid */}
                     <div className="imp-metrics-grid">
                         <div className="imp-metric-card">
-                            <span className="imp-metric-val">{importStatus.progress_percent}%</span>
+                            <span className="imp-metric-val">{importStatus.status === 'scanning' ? 'Indexing...' : `${importStatus.progress_percent}%`}</span>
                             <span className="imp-metric-lbl">Total Progress</span>
                         </div>
 
                         <div className="imp-metric-card">
                             <span className="imp-metric-val">
-                                {importStatus.files_transferred} / {importStatus.files_total}
+                                {importStatus.status === 'scanning'
+                                    ? `${importStatus.files_total} Found`
+                                    : `${importStatus.files_transferred} / ${importStatus.files_total}`}
                             </span>
-                            <span className="imp-metric-lbl">Files Processed</span>
+                            <span className="imp-metric-lbl">
+                                {importStatus.status === 'scanning' ? 'Files Discovered' : 'Files Processed'}
+                            </span>
                         </div>
 
                         <div className="imp-metric-card">
