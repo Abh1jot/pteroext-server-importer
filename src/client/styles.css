@@ -12,6 +12,12 @@
     color: var(--foreground, #f8fafc);
 }
 
+@media (min-width: 640px) {
+    .imp-container {
+        padding: 28px 24px 48px;
+    }
+}
+
 .imp-container *, .imp-container *::before, .imp-container *::after {
     box-sizing: border-box;
 }
