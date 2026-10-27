@@ -56,7 +56,7 @@ export default defineConfig({
             output: {
                 format: 'es',
                 entryFileNames: 'client.js',
-                chunkFileNames: 'chunk.[name].[hash].js',
+                inlineDynamicImports: true,
                 assetFileNames: (assetInfo) => (assetInfo.name && assetInfo.name.endsWith('.css') ? 'server-importer.css' : '[name].[hash][extname]'),
             },
         },
