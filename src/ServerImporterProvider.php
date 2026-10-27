@@ -27,27 +27,27 @@ class ServerImporterProvider extends ExtensionProvider
 
         // 3. Register extension settings
         $this->registerSettings(new ExtensionSettingsDefinition($this->settings(), [
-            ExtensionSettingDefinition::make('enabled_by_default', 'toggle', true)
+            ExtensionSettingDefinition::make('enabled_by_default', 'enabled_by_default', true)
                 ->label('Enable for All Servers')
                 ->help('Allow all server owners to access the Server Importer tab.')
                 ->field('toggle')
                 ->frontend()
                 ->public(),
 
-            ExtensionSettingDefinition::make('default_port', 'number', 2022)
+            ExtensionSettingDefinition::make('default_port', 'default_port', 2022)
                 ->label('Default SFTP Port')
                 ->help('The default SFTP port filled in when opening the Importer wizard.')
                 ->field('number')
                 ->frontend()
                 ->public(),
 
-            ExtensionSettingDefinition::make('connection_timeout_seconds', 'number', 15)
+            ExtensionSettingDefinition::make('connection_timeout_seconds', 'connection_timeout_seconds', 15)
                 ->label('Connection Timeout (Seconds)')
                 ->help('Maximum seconds to wait when testing SFTP connection or reading remote directory trees.')
                 ->field('number')
                 ->frontend(),
 
-            ExtensionSettingDefinition::make('default_exclusions', 'text', '*.log, *.log.gz, crash-reports/*, backups/*, cache/*, .git/*, .env')
+            ExtensionSettingDefinition::make('default_exclusions', 'default_exclusions', '*.log, *.log.gz, crash-reports/*, backups/*, cache/*, .git/*, .env')
                 ->label('Default Excluded File Patterns')
                 ->help('Comma-separated list of glob patterns to exclude from migration transfers by default.')
                 ->field('text')
