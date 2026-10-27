@@ -122,7 +122,7 @@ export default function ServerImportLockdown() {
             <div style={{
                 maxWidth: 540,
                 width: '100%',
-                backgroundColor: '#0f172a',
+                backgroundColor: 'var(--card, rgba(17, 24, 39, 0.95))',
                 border: '1px solid rgba(255, 255, 255, 0.1)',
                 borderRadius: 12,
                 padding: 28,
